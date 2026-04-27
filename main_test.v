@@ -89,3 +89,50 @@ fn test_included_struct() {
 	assert out.info.first_name == cfg.info.first_name
 	assert out.info.last_name == envs.info.last_name
 }
+
+fn test_field_source_attributes() {
+	struct AttrCfg {
+	pub:
+		json_only string @[cfgman: 'json']
+		env_only  string @[cfgman: 'env']
+		disabled  string @[cfgman: '-']
+		both      string
+	}
+
+	path := '${os.vtmp_dir()}/cfgman_attr_test.json'
+	os.write_file(path, '{"json_only":"from_json","env_only":"ignored_json","disabled":"ignored_json","both":"json_value"}') or { panic(err) }
+	os.setenv('CFGMAN_JSON_ONLY', 'from_env', true)
+	os.unsetenv('CFGMAN_ENV_ONLY')
+	os.setenv('CFGMAN_DISABLED', 'from_env', true)
+	os.setenv('CFGMAN_BOTH', 'from_env', true)
+
+	mut cfg := load[AttrCfg](cfg_file_path: path)!
+	assert cfg.json_only == 'from_json'
+	assert cfg.env_only == ''
+	assert cfg.disabled == ''
+	assert cfg.both == 'from_env'
+	assert cfg.json_only != 'from_env'
+	assert cfg.both != 'json_value'
+
+	os.setenv('CFGMAN_ENV_ONLY', 'from_env', true)
+	cfg = load[AttrCfg](cfg_file_path: path)!
+	assert cfg.env_only == 'from_env'
+	assert cfg.disabled == ''
+}
+
+fn test_custom_env_name_attribute() {
+	struct NamedCfg {
+	pub:
+		port int @[cfgman: 'env:CUSTOM_PORT']
+		addr string
+	}
+
+	path := '${os.vtmp_dir()}/cfgman_named_attr_test.json'
+	os.write_file(path, '{"port":1000,"addr":"127.0.0.1"}') or { panic(err) }
+	os.setenv('CUSTOM_PORT', '4321', true)
+	os.setenv('CFGMAN_PORT', '1111', true)
+
+	cfg := load[NamedCfg](cfg_file_path: path)!
+	assert cfg.port == 4321
+	assert cfg.addr == '127.0.0.1'
+}

@@ -230,6 +230,215 @@ MYAPP_PORT
 MYAPP_ADDR
 ```
 
+## Field Attributes
+
+Struct fields can declare `cfgman` attributes to control how `cfgman` treats environment overrides.
+
+Supported forms:
+
+```v
+@[cfgman: 'json']
+@[cfgman: 'env']
+@[cfgman: 'env:CUSTOM_NAME']
+@[cfgman: 'both']
+@[cfgman: '-']
+```
+
+You attach these attributes directly to struct fields.
+
+### `@[cfgman: 'json']`
+
+Loads the field from JSON only.
+
+```v
+struct Config {
+pub:
+	port int
+	api_key string @[cfgman: 'json']
+}
+```
+
+With this setup:
+
+- `port` can still be overridden from env
+- `api_key` is loaded only from JSON
+
+Example:
+
+```json
+{
+  "port": 8080,
+  "api_key": "from_json"
+}
+```
+
+```text
+CFGMAN_PORT=9000
+CFGMAN_API_KEY=from_env
+```
+
+Result:
+
+```text
+port = 9000
+api_key = from_json
+```
+
+### `@[cfgman: 'env']`
+
+Loads the field from environment only.
+
+JSON values for that field are ignored, and the field remains at its zero value if no matching env variable exists.
+
+```v
+struct Config {
+pub:
+	port int
+	token string @[cfgman: 'env']
+}
+```
+
+Example JSON:
+
+```json
+{
+  "port": 8080,
+  "token": "ignored-json"
+}
+```
+
+If `CFGMAN_TOKEN` is not set:
+
+```text
+token = ''
+```
+
+If `CFGMAN_TOKEN=from_env`:
+
+```text
+token = from_env
+```
+
+### `@[cfgman: 'env:CUSTOM_NAME']`
+
+Overrides the environment variable name for a field.
+
+```v
+struct Config {
+pub:
+	port int @[cfgman: 'env:CUSTOM_PORT']
+	addr string
+}
+```
+
+This field now reads `CUSTOM_PORT` instead of `CFGMAN_PORT` or `<PREFIX>_PORT`.
+
+Example:
+
+```text
+CUSTOM_PORT=7000
+```
+
+### `@[cfgman: 'both']`
+
+Marks the field as using the default behavior explicitly.
+
+```v
+struct Config {
+pub:
+	port int @[cfgman: 'both']
+}
+```
+
+This is equivalent to not setting the attribute.
+
+### `@[cfgman: '-']`
+
+Disables both JSON and env handling for the field.
+
+The field is left unchanged at its default value unless you set it manually after loading.
+
+```v
+struct Config {
+pub:
+	computed string @[cfgman: '-']
+}
+```
+
+### Combined usage
+
+The `cfgman` attribute value is comma-separated, so you can combine source selection and a custom env name.
+
+```v
+struct Config {
+pub:
+	port int @[cfgman: 'both,env:APP_HTTP_PORT']
+	secret string @[cfgman: 'json']
+	computed string @[cfgman: '-']
+}
+```
+
+### Attribute Example
+
+```v
+module main
+
+import cfgman
+
+struct Config {
+pub:
+	port int @[cfgman: 'env:CUSTOM_PORT']
+	token string @[cfgman: 'json']
+	secret string @[cfgman: 'env']
+	computed string @[cfgman: '-']
+	host string
+}
+
+fn main() {
+	cfg := cfgman.load[Config](
+		cfg_file_path: 'config.json'
+		env_prefix: 'APP'
+	) or {
+		panic(err)
+	}
+
+	println(cfg.port)
+	println(cfg.token)
+	println(cfg.host)
+}
+```
+
+If:
+
+```json
+{
+  "port": 8080,
+  "token": "json-token",
+  "secret": "ignored-json-secret",
+  "computed": "ignored-json-value",
+  "host": "127.0.0.1"
+}
+```
+
+And the environment contains:
+
+```text
+CUSTOM_PORT=5050
+APP_TOKEN=env-token
+APP_SECRET=env-secret
+APP_HOST=0.0.0.0
+```
+
+Then the result is:
+
+```text
+port = 5050
+token = json-token
+secret = env-secret
+computed = ''
+host = 0.0.0.0
+```
+
 ### Nested Structs
 
 Nested structs extend the prefix recursively.
@@ -515,7 +724,7 @@ These points reflect the current implementation.
 
 - JSON loading depends on `x.json2.decode`
 - Environment overrides are applied to struct fields only
-- Field names map directly from V field names to uppercase env names
+- Default field names map from V field names to uppercase env names
 - `.env` expansion supports `${VAR}` syntax, not `$VAR`
 - Recursive or circular expansion is not specially handled
 - Single-quoted values are treated as literal text
